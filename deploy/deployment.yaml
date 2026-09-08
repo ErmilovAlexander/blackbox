@@ -1,0 +1,75 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kube-blackbox-data
+  namespace: kube-blackbox
+  labels:
+    app.kubernetes.io/name: kube-blackbox
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kube-blackbox
+  namespace: kube-blackbox
+  labels:
+    app.kubernetes.io/name: kube-blackbox
+spec:
+  replicas: 1
+  # A single-writer store on a ReadWriteOnce volume must stop before a new Pod starts.
+  strategy:
+    type: Recreate
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kube-blackbox
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kube-blackbox
+    spec:
+      serviceAccountName: kube-blackbox
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: recorder
+          # Load this tag into a local cluster, or replace it with an internal registry image.
+          image: kube-blackbox:dev
+          imagePullPolicy: IfNotPresent
+          args:
+            - recorder
+            - --cluster=local
+            - --data-dir=/var/lib/kube-blackbox
+            - --retention=24h
+            - --max-store-bytes=2147483648
+            - --max-segment-bytes=67108864
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/kube-blackbox
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: kube-blackbox-data
