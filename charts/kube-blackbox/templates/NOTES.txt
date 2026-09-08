@@ -1,0 +1,8 @@
+kube-blackbox installed in namespace {{ .Release.Namespace }}.
+
+Image: {{ include "kube-blackbox.image" . }}
+Cluster label: {{ .Values.clusterName }}
+
+Check the Deployment, Pod, PVC, Events and Logs pages in the Shturval UI.
+Successful startup includes the JSON log message:
+  initial Kubernetes snapshots persisted

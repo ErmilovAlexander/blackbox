@@ -1,0 +1,11 @@
+apiVersion: v2
+name: kube-blackbox
+description: Offline-first Kubernetes flight recorder
+type: application
+version: 0.1.0
+appVersion: "4faa2b2"
+home: https://github.com/ErmilovAlexander/blackbox
+sources:
+  - https://github.com/ErmilovAlexander/blackbox
+maintainers:
+  - name: ErmilovAlexander

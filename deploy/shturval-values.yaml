@@ -1,0 +1,21 @@
+# Paste into Shturval's "Спецификация сервиса" for the management cluster.
+# This file intentionally contains no registry credentials.
+clusterName: management
+
+image:
+  repository: mirror.ip-10-28-32-189.shturval.link/kube-blackbox
+  tag: "4faa2b2"
+  digest: "sha256:0a742b83f0bfca6db4da14707020c40ecea9db838d6d8e951a1d6ca2e0836575"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets:
+  - name: kube-blackbox-registry
+
+persistence:
+  enabled: true
+  keep: true
+  storageClass: ""
+  size: 5Gi
+
+nodeSelector:
+  kubernetes.io/arch: amd64

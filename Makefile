@@ -1,9 +1,16 @@
-.PHONY: build test test-short vet fmt fmt-check verify vendor image manifests install smoke clean
+.PHONY: build test test-short vet fmt fmt-check verify vendor image image-push chart-lint chart-package chart-push manifests install smoke clean
 
 GO ?= go
 BINARY ?= bin/kube-blackbox
 IMAGE ?= kube-blackbox:dev
 VERSION ?= dev
+PLATFORM ?= linux/amd64
+HELM ?= helm
+CHART ?= charts/kube-blackbox
+CHART_DEST ?= dist
+CHART_VERSION ?= 0.1.0
+CHART_OCI ?= oci://mirror.ip-10-28-32-189.shturval.link/helm
+HELM_PUSH_FLAGS ?=
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
 build:
@@ -26,7 +33,7 @@ fmt-check:
 	@test -z "$$(gofmt -l $$(find . -name '*.go' -type f -not -path './vendor/*'))" || \
 		(printf '%s\n' 'Go files are not formatted; run make fmt' && exit 1)
 
-verify: fmt-check vet test build manifests
+verify: fmt-check vet test build manifests chart-lint
 
 # Run once in a connected build environment, then carry vendor/ into an air-gapped build zone.
 vendor:
@@ -34,7 +41,21 @@ vendor:
 	$(GO) mod vendor
 
 image:
-	docker build --build-arg VERSION=$(VERSION) -t $(IMAGE) .
+	docker buildx build --platform $(PLATFORM) --load --build-arg VERSION=$(VERSION) -t $(IMAGE) .
+
+image-push:
+	docker buildx build --platform $(PLATFORM) --push --build-arg VERSION=$(VERSION) -t $(IMAGE) .
+
+chart-lint:
+	$(HELM) lint $(CHART)
+	$(HELM) template kube-blackbox $(CHART) --namespace kube-blackbox >/dev/null
+
+chart-package: chart-lint
+	mkdir -p $(CHART_DEST)
+	$(HELM) package $(CHART) --destination $(CHART_DEST)
+
+chart-push: chart-package
+	$(HELM) push $(CHART_DEST)/kube-blackbox-$(CHART_VERSION).tgz $(CHART_OCI) $(HELM_PUSH_FLAGS)
 
 manifests:
 	kubectl kustomize deploy >/dev/null
@@ -46,4 +67,4 @@ smoke:
 	./hack/kubernetes-smoke-test.sh
 
 clean:
-	rm -rf bin
+	rm -rf bin dist

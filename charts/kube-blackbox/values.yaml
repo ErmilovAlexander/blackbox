@@ -1,0 +1,72 @@
+image:
+  repository: mirror.ip-10-28-32-189.shturval.link/kube-blackbox
+  tag: "4faa2b2"
+  digest: "sha256:0a742b83f0bfca6db4da14707020c40ecea9db838d6d8e951a1d6ca2e0836575"
+  pullPolicy: IfNotPresent
+
+# Create this Secret in the target namespace through the Shturval UI.
+# Credentials are deliberately not stored in this chart.
+imagePullSecrets:
+  - name: kube-blackbox-registry
+
+nameOverride: ""
+fullnameOverride: ""
+
+clusterName: management
+includeConfigMaps: false
+retention: 24h
+maxStoreBytes: 2147483648
+maxSegmentBytes: 67108864
+
+persistence:
+  enabled: true
+  # Preserve incident evidence when the Helm release is removed.
+  keep: true
+  existingClaim: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 5Gi
+  storageClass: ""
+  annotations: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: true
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  fsGroupChangePolicy: OnRootMismatch
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 1Gi
+
+nodeSelector:
+  kubernetes.io/arch: amd64
+
+tolerations: []
+affinity: {}
+priorityClassName: ""
+terminationGracePeriodSeconds: 30

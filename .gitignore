@@ -1,4 +1,5 @@
 /bin/
 /data/
+/dist/
 *.kbb
 .DS_Store
