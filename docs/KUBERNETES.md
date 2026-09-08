@@ -168,13 +168,28 @@ kubectl -n kube-blackbox exec deployment/kube-blackbox -- \
 
 Чтение открывает store в read-only режиме и не создаёт новый JSONL segment.
 
+Structured diff для одного объекта:
+
+```bash
+kubectl -n kube-blackbox exec deployment/kube-blackbox -- \
+  /kube-blackbox diff \
+  --data-dir=/var/lib/kube-blackbox \
+  --namespace=default \
+  --kind=Deployment \
+  --name=api \
+  --from=2026-09-08T09:00:00Z \
+  --to=2026-09-08T10:00:00Z
+```
+
+Команда исключает initial `SNAPSHOT` и no-op updates. Для object maps она выдаёт path-sorted изменения `ADD`, `REMOVE`, `REPLACE`; массивы сравниваются целиком.
+
 ## 8. Автоматический smoke-тест
 
 ```bash
 make smoke
 ```
 
-Тест создаёт временный namespace и ConfigMap, ждёт `ADD`, изменяет labels и ждёт `UPDATE`, удаляет объект и ждёт `DELETE`. После удаления он проверяет retained evidence, отсутствие ConfigMap payload и отсутствие лишних RBAC-прав. Временный namespace удаляется автоматически.
+Тест создаёт временный namespace и ConfigMap, ждёт `ADD`, изменяет labels и ждёт `UPDATE`, удаляет объект и ждёт `DELETE`. После удаления он проверяет retained evidence, structured diff, отсутствие ConfigMap payload и отсутствие лишних RBAC-прав. Временный namespace удаляется автоматически.
 
 ## 9. Диагностика
 

@@ -12,7 +12,7 @@ Kubernetes API
 
 segment-*.jsonl
   -> Store.Query
-  -> timeline projection или полные canonical records
+  -> timeline, structured diff или полные canonical records
   -> stdout
 ```
 
@@ -26,6 +26,7 @@ segment-*.jsonl
 | `internal/collector/kubernetes.go` | 13 cluster-wide informer-ов, классификация `SNAPSHOT/ADD/UPDATE/DELETE`, сбор metadata и Event reason/message |
 | `internal/model/record.go` | Версионированная canonical schema и проверка обязательных полей/enums |
 | `internal/redact/redact.go` | Удаление `managedFields`, Secret/ConfigMap payload, plaintext env и рискованных annotations |
+| `internal/diff/diff.go` | Детерминированный structural diff с RFC 6901 paths и операциями ADD/REMOVE/REPLACE |
 | `internal/store/store.go` | Интерфейс, отделяющий collector/timeline от формата хранилища |
 | `internal/store/jsonl/store.go` | Append-only сегменты, rotation, time/size retention, линейный query, read-only open |
 | `internal/timeline/timeline.go` | Хронологическая проекция canonical records в компактные entries |
@@ -61,6 +62,7 @@ segment-*.jsonl
 - Informer хранит текущее состояние объектов в памяти; расход RAM зависит от размера кластера.
 - Каждое UPDATE хранит полный current/previous JSON, а не компактный diff.
 - Query линейно сканирует все retained segments; индексов пока нет.
+- Массивы в structured diff сравниваются как атомарные значения. List-aware стратегии появятся только для полей с надёжным ключом элемента.
 - `observedAt` — локальное UTC-время recorder-а, поэтому узлы кластера должны иметь корректную синхронизацию времени.
 - Time retention опирается на mtime сегмента. Активный сегмент удаляется только после rotation.
 - Если один из обязательных API resources недоступен или RBAC неполон, все initial snapshots не перейдут в состояние synced; причина будет видна в logs reflector-а.
@@ -83,6 +85,7 @@ segment-*.jsonl
 | Canonical record v1alpha1 | Реализован |
 | Segmented local store + retention | Реализован |
 | Timeline query | Реализован |
+| Structured object diff | Реализован |
 | Record bus | Пока прямой вызов `Store.Append` |
 | Rule engine | Не реализован |
 | Correlation graph | Не реализован |

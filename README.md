@@ -13,6 +13,7 @@ Always-on, offline-first flight recorder для Kubernetes. Сервис дел�
 - сегментированное append-only JSONL-хранилище с retention по времени и объёму;
 - CLI-фильтры по времени, namespace, kind, name и UID;
 - безопасное read-only чтение краткой timeline или полных canonical records;
+- структурированный diff между версиями объектов с RFC 6901 JSON Pointer paths;
 - Deployment, PVC, ServiceAccount и минимальный read-only ClusterRole;
 - unit/race-тесты, CI и smoke-тест для реального Kubernetes-кластера.
 
@@ -48,6 +49,18 @@ make verify
 ./bin/kube-blackbox timeline --data-dir=./data --output=records --limit=100
 ```
 
+Изменения объекта между сохранёнными версиями:
+
+```bash
+./bin/kube-blackbox diff \
+  --data-dir=./data \
+  --namespace=default \
+  --kind=Deployment \
+  --name=api \
+  --from=2026-09-08T09:00:00Z \
+  --to=2026-09-08T10:00:00Z
+```
+
 ## Сборка контейнера и установка
 
 ```bash
@@ -76,6 +89,8 @@ make vendor      подготовить зависимости для air-gapped
 ```
 
 Все варианты тестирования перечислены в [docs/TESTING.md](docs/TESTING.md). Архитектурные ограничения и будущие этапы находятся в [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) и [docs/MVP.md](docs/MVP.md).
+
+Порядок доведения проекта до первого полноценного выпуска описан в [docs/RELEASE_V0.1.md](docs/RELEASE_V0.1.md).
 
 ## Air-gapped сборка
 

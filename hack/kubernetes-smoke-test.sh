@@ -33,6 +33,16 @@ records() {
 		--limit=100
 }
 
+diffs() {
+	${KUBECTL} -n "${RECORDER_NAMESPACE}" exec "deployment/${RECORDER_DEPLOYMENT}" -- \
+		/kube-blackbox diff \
+		--data-dir=/var/lib/kube-blackbox \
+		--namespace="${TEST_NAMESPACE}" \
+		--kind=ConfigMap \
+		--name="${CONFIGMAP_NAME}" \
+		--limit=100
+}
+
 wait_for_action() {
 	action=$1
 	attempt=0
@@ -99,4 +109,9 @@ if printf '%s\n' "${FINAL_RECORDS}" | grep -Eq '"(data|binaryData)":'; then
 	fail 'ConfigMap data field was persisted'
 fi
 
-printf 'PASS: RBAC, watch delivery, persistence, deletion history, and ConfigMap redaction are working.\n'
+FINAL_DIFFS=$(diffs) || fail 'diff command failed'
+printf '%s\n' "${FINAL_DIFFS}" | grep -Fq '"path": "/metadata/labels/smoke-phase"' || fail 'structured label diff is missing'
+printf '%s\n' "${FINAL_DIFFS}" | grep -q '"operation": "ADD"' || fail 'structured ADD diff is missing'
+printf '%s\n' "${FINAL_DIFFS}" | grep -q '"operation": "REMOVE"' || fail 'structured REMOVE diff is missing'
+
+printf 'PASS: RBAC, watch delivery, persistence, structured diff, deletion history, and ConfigMap redaction are working.\n'

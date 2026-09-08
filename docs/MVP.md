@@ -15,7 +15,7 @@
 ## M1 — useful flight recorder
 
 - [x] Initial informer list marked as `SNAPSHOT`
-- [ ] Structured object diff (JSON Pointer paths)
+- [x] Structured object diff (JSON Pointer paths)
 - [ ] `kubectl blackbox timeline`
 - [ ] `kubectl blackbox diff --from --to`
 - [ ] ownerReference graph

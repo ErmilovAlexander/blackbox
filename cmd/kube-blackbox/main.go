@@ -13,6 +13,8 @@ import (
 
 	"github.com/ErmilovAlexander/blackbox/internal/collector"
 	"github.com/ErmilovAlexander/blackbox/internal/config"
+	objectdiff "github.com/ErmilovAlexander/blackbox/internal/diff"
+	"github.com/ErmilovAlexander/blackbox/internal/model"
 	storepkg "github.com/ErmilovAlexander/blackbox/internal/store"
 	jsonlstore "github.com/ErmilovAlexander/blackbox/internal/store/jsonl"
 	"github.com/ErmilovAlexander/blackbox/internal/timeline"
@@ -33,6 +35,8 @@ func main() {
 		runRecorder(os.Args[2:])
 	case "timeline":
 		runTimeline(os.Args[2:])
+	case "diff":
+		runDiff(os.Args[2:])
 	case "version":
 		fmt.Println(version)
 	default:
@@ -42,9 +46,10 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "kube-blackbox <recorder|timeline|version>")
+	fmt.Fprintln(os.Stderr, "kube-blackbox <recorder|timeline|diff|version>")
 	fmt.Fprintln(os.Stderr, "  recorder  watch Kubernetes objects and append canonical records")
 	fmt.Fprintln(os.Stderr, "  timeline  query retained records without modifying the store")
+	fmt.Fprintln(os.Stderr, "  diff      show structural JSON Pointer changes between object versions")
 	fmt.Fprintln(os.Stderr, "  version   print the build version")
 }
 
@@ -86,30 +91,11 @@ func runRecorder(args []string) {
 
 func runTimeline(args []string) {
 	fs := flag.NewFlagSet("timeline", flag.ExitOnError)
-	dataDir := fs.String("data-dir", "/var/lib/kube-blackbox", "local data directory")
-	fromText := fs.String("from", "", "RFC3339 start time")
-	toText := fs.String("to", "", "RFC3339 end time")
-	ns := fs.String("namespace", "", "namespace filter")
-	kind := fs.String("kind", "", "kind filter")
-	name := fs.String("name", "", "object name filter")
-	uid := fs.String("uid", "", "object UID filter")
-	limit := fs.Int("limit", 500, "max records")
+	query := queryOptions{limit: 500}
+	query.bind(fs)
 	output := fs.String("output", "timeline", "output format: timeline or records")
 	_ = fs.Parse(args)
-	from, err := parseTime(*fromText)
-	fatalIf(err)
-	to, err := parseTime(*toText)
-	fatalIf(err)
-	if !from.IsZero() && !to.IsZero() && from.After(to) {
-		fatalIf(fmt.Errorf("from must be before or equal to to"))
-	}
-	if *limit < 0 {
-		fatalIf(fmt.Errorf("limit must not be negative"))
-	}
-	st, err := jsonlstore.OpenReadOnly(*dataDir)
-	fatalIf(err)
-	defer st.Close()
-	records, err := st.Query(context.Background(), storepkg.Query{From: from, To: to, Namespace: *ns, Kind: *kind, Name: *name, UID: *uid, Limit: *limit})
+	records, err := query.load()
 	fatalIf(err)
 	var result any
 	switch *output {
@@ -120,9 +106,78 @@ func runTimeline(args []string) {
 	default:
 		fatalIf(fmt.Errorf("unsupported output %q: use timeline or records", *output))
 	}
+	writeJSON(result)
+}
+
+func runDiff(args []string) {
+	fs := flag.NewFlagSet("diff", flag.ExitOnError)
+	query := queryOptions{limit: 500}
+	query.bind(fs)
+	_ = fs.Parse(args)
+	records, err := query.load()
+	fatalIf(err)
+	entries, err := objectdiff.Build(records)
+	fatalIf(err)
+	writeJSON(entries)
+}
+
+type queryOptions struct {
+	dataDir  string
+	fromText string
+	toText   string
+	ns       string
+	kind     string
+	name     string
+	uid      string
+	limit    int
+}
+
+func (q *queryOptions) bind(fs *flag.FlagSet) {
+	fs.StringVar(&q.dataDir, "data-dir", "/var/lib/kube-blackbox", "local data directory")
+	fs.StringVar(&q.fromText, "from", "", "RFC3339 start time")
+	fs.StringVar(&q.toText, "to", "", "RFC3339 end time")
+	fs.StringVar(&q.ns, "namespace", "", "namespace filter")
+	fs.StringVar(&q.kind, "kind", "", "kind filter")
+	fs.StringVar(&q.name, "name", "", "object name filter")
+	fs.StringVar(&q.uid, "uid", "", "object UID filter")
+	fs.IntVar(&q.limit, "limit", q.limit, "max records; 0 means unlimited")
+}
+
+func (q queryOptions) load() ([]model.Record, error) {
+	from, err := parseTime(q.fromText)
+	if err != nil {
+		return nil, fmt.Errorf("parse from: %w", err)
+	}
+	to, err := parseTime(q.toText)
+	if err != nil {
+		return nil, fmt.Errorf("parse to: %w", err)
+	}
+	if !from.IsZero() && !to.IsZero() && from.After(to) {
+		return nil, fmt.Errorf("from must be before or equal to to")
+	}
+	if q.limit < 0 {
+		return nil, fmt.Errorf("limit must not be negative")
+	}
+	st, err := jsonlstore.OpenReadOnly(q.dataDir)
+	if err != nil {
+		return nil, err
+	}
+	defer st.Close()
+	return st.Query(context.Background(), storepkg.Query{
+		From:      from,
+		To:        to,
+		Namespace: q.ns,
+		Kind:      q.kind,
+		Name:      q.name,
+		UID:       q.uid,
+		Limit:     q.limit,
+	})
+}
+
+func writeJSON(value any) {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
-	fatalIf(enc.Encode(result))
+	fatalIf(enc.Encode(value))
 }
 
 func kubeConfig(path string) (*rest.Config, error) {

@@ -20,6 +20,7 @@ make verify
 - `internal/redact`: удаление Secret payload, ConfigMap opt-in, plaintext env, managed fields и рискованных annotations;
 - `internal/store/jsonl`: append/query, фильтры, read-only режим и проверка границ store/segment;
 - `internal/collector`: initial LIST выдаёт `SNAPSHOT`, новый watch object выдаёт `ADD`;
+- `internal/diff`: RFC 6901 escaping, stable ordering, missing/null semantics, object lifecycle и пропуск snapshot/no-op;
 - `internal/timeline`: хронологическая сортировка и сохранение evidence record ID.
 
 Отдельный запуск пакета:
@@ -82,6 +83,18 @@ kubectl -n kbb-manual-test delete configmap probe
 ```
 
 Ожидаются `ADD`, `UPDATE`, `DELETE`; поля `object.data` и `previous.data`, а также строка `must-not-be-stored`, должны отсутствовать.
+
+Проверьте structural diff:
+
+```bash
+./bin/kube-blackbox diff \
+  --data-dir=./data \
+  --namespace=kbb-manual-test \
+  --kind=ConfigMap \
+  --name=probe
+```
+
+Для изменения label должен присутствовать path `/metadata/labels/phase`, а для жизненного цикла объекта — корневые операции `ADD` и `REMOVE`.
 
 После теста:
 
