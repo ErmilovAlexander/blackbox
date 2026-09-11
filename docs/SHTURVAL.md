@@ -1,180 +1,231 @@
-# Развёртывание в Shturval 2.14 без kubectl
+# Развёртывание и проверка в Shturval 2.14
 
-Эта инструкция предназначена для management-кластера стенда
-`shturval.demo214.ip-10-28-32-101.shturval.link`. Все операции выполняются через
-графический интерфейс Shturval. Менять kubeconfig, запускать `kubectl`, подключаться
-к control plane `10.28.32.129` или изменять конфигурацию Kubernetes/узлов не требуется.
+Инструкция проверена на management-кластере `demo214`. Сервис устанавливается в
+namespace `blackbox`, получает image из локального Nexus и запускается только на
+infra-узлах. Системные Pod и control plane не изменяются.
 
-## Готовые артефакты
+## Артефакты выпуска
 
 | Артефакт | Значение |
 |---|---|
-| OCI image | `mirror.ip-10-28-32-189.shturval.link/kube-blackbox:4faa2b2` |
-| Image digest | `sha256:0a742b83f0bfca6db4da14707020c40ecea9db838d6d8e951a1d6ca2e0836575` |
-| Архитектура | `linux/amd64` (`x86_64`) |
-| OCI Helm repository | `oci://mirror.ip-10-28-32-189.shturval.link/helm` |
+| Image | `mirror.ip-10-28-32-189.shturval.link/kube-blackbox:4faa2b2` |
+| Image digest | `sha256:5b7a52c94e04dbd65425db71da428f6a1175a10cf3b4c7596e204211e1c6d557` |
+| Платформа | `linux/amd64` |
+| Nexus Docker hosted repository | `kube-blackbox` |
+| Nexus Docker group | `r.shturval.tech-group` |
+| Nexus Helm repository | `https://mirror.ip-10-28-32-189.shturval.link/repository/shturval_helm/` |
+| Shturval repository | `mirror-stp` |
 | Chart | `kube-blackbox` |
-| Chart version | `0.1.0` |
-| Chart digest | `sha256:d60f1dc4570c3fca81d0aa8ae87bb320ca23a679b568af6e430a48d961172f36` |
-| Целевой namespace | `kube-blackbox` |
+| Chart version | `0.1.3` |
+| Chart SHA-256 | `21a6cd0c24a81cd536908d94722afd8a725f1965d4e8dd022e90cbba1fff4253` |
 
-Chart использует image по digest, поэтому повторная публикация того же тега не
-изменит установленный бинарник.
+Chart использует image по digest. Повторная публикация того же тега не изменит
+исполняемый образ.
 
 ## Что создаёт chart
 
-- один `Deployment` со стратегией `Recreate`;
-- `PersistentVolumeClaim` размером 5 GiB;
+- `Deployment` со стратегией `Recreate`;
+- `PersistentVolumeClaim` размером 5 GiB либо подключение существующего PVC;
 - отдельный `ServiceAccount`;
 - read-only `ClusterRole` и `ClusterRoleBinding` только с `get`, `list`, `watch`;
-- ограничение планирования `kubernetes.io/arch: amd64`.
+- запуск от UID/GID `65532`, read-only root filesystem и удалённые capabilities;
+- размещение только на `linux/amd64` infra-узлах.
 
-Chart не создаёт Secret с доступом к Nexus и не содержит логин/пароль. PVC помечен
-`helm.sh/resource-policy: keep`, чтобы удаление Helm-релиза не удалило evidence.
+Recorder читает 13 типов Kubernetes-ресурсов cluster-wide. Он не имеет прав на
+Secrets, `pods/log`, `pods/exec` или изменение workloads.
 
-Recorder работает cluster-wide: он читает объекты во всех namespace, а также Nodes
-и PV. Поэтому учётная запись, выполняющая установку через Shturval, должна иметь
-право на создание ClusterRole и ClusterRoleBinding. Namespace-only установка не
-сможет выполнить назначение продукта.
+## Доверие CA Nexus без рестарта containerd
 
-## 1. Создать namespace
-
-1. Откройте [стенд Shturval](https://shturval.demo214.ip-10-28-32-101.shturval.link/).
-2. В левом меню выберите management-кластер.
-3. Создайте namespace `kube-blackbox` штатной формой интерфейса.
-
-Namespace нужно создать до установки chart, потому что в нём сначала создаётся
-секрет доступа к registry.
-
-## 2. Создать ImagePullSecret через интерфейс
-
-Локально подготовьте Docker config. Команды ниже не обращаются к Kubernetes и не
-сохраняют пароль в истории shell:
-
-```bash
-export REGISTRY_HOST=mirror.ip-10-28-32-189.shturval.link
-read -r "REGISTRY_USER?Nexus user: "
-read -rs "REGISTRY_PASSWORD?Nexus password: "; printf '\n'
-export REGISTRY_USER REGISTRY_PASSWORD
-
-jq -n \
-  --arg host "${REGISTRY_HOST}" \
-  --arg user "${REGISTRY_USER}" \
-  --arg password "${REGISTRY_PASSWORD}" \
-  --arg auth "$(printf '%s' "${REGISTRY_USER}:${REGISTRY_PASSWORD}" | base64 | tr -d '\n')" \
-  '{auths: {($host): {username: $user, password: $password, auth: $auth}}}' \
-  > /tmp/kube-blackbox-dockerconfig.json
-
-unset REGISTRY_PASSWORD
-```
-
-В Shturval выберите management-кластер → namespace `kube-blackbox` →
-**Хранилище** → **Secrets** и создайте Secret:
-
-- имя: `kube-blackbox-registry`;
-- тип: `dockerconfigjson`;
-- ключ: `.dockerconfigjson`;
-- значение: содержимое `/tmp/kube-blackbox-dockerconfig.json`.
-
-После загрузки удалите временный локальный файл. Не добавляйте его в Git.
-
-## 3. Подключить OCI Helm repository
-
-В management-кластере откройте **Сервисы и репозитории** → **Репозитории** →
-**+ Добавить репозиторий** и задайте:
-
-- название: `blackbox`;
-- URL: `oci://mirror.ip-10-28-32-189.shturval.link/helm`;
-- логин и пароль: учётная запись Nexus;
-- проверка сертификата: включена, если Shturval принимает сертификат Nexus.
-
-На 8 сентября 2026 года Nexus отдаёт self-signed сертификат без SAN. Строгие TLS
-клиенты могут отклонить его. Предпочтительное исправление — корректный сертификат
-на стороне Nexus. Если это невозможно на тестовом стенде, Shturval позволяет
-отключить проверку сертификата только для этого подключения репозитория; перед этим
-сверьте SHA-256 fingerprint:
+Nexus выдаёт self-signed сертификат для
+`mirror.ip-10-28-32-189.shturval.link`. Проверенный SHA-256 fingerprint:
 
 ```text
-2F:85:07:35:AA:0A:DD:1D:8C:DD:B4:98:E4:EC:DF:20:5C:E1:6D:98:41:85:98:74:3D:D3:60:8A:64:32:CE:73
+3D:D7:AC:14:83:A9:99:F8:17:95:03:FF:2B:98:36:DF:9D:4E:C1:55:86:22:8B:ED:AA:64:12:98:C2:9E:DC:0D
 ```
 
-Отключение проверки для Helm repository не исправляет TLS при pull контейнерного
-image. Worker-узлы должны уже уметь получать образы с этого внутреннего registry.
-Изменять их runtime в рамках этой установки не нужно и не следует.
+CA устанавливается отдельно на каждом infra-узле только для hostname Nexus:
 
-## 4. Установить chart
+```text
+/etc/containerd/certs.d/mirror.ip-10-28-32-189.shturval.link/ca.crt
+```
 
-1. Откройте **Сервисы и репозитории** → **Доступные чарты** → вкладку `blackbox`.
-2. Для OCI repository вручную введите chart `kube-blackbox`.
-3. Нажмите **Проверить версию**, выберите `0.1.0`, затем **Проверить чарт**.
-4. На странице установки укажите:
-   - название экземпляра: `kube-blackbox`;
-   - namespace: существующий `kube-blackbox`;
-   - режим управления: **Авто**.
-5. В **Спецификации сервиса** оставьте defaults или укажите только отличия:
+Безопасная установка:
+
+```bash
+tmpfile=$(mktemp)
+trap 'rm -f "$tmpfile"' EXIT
+
+openssl s_client \
+  -connect mirror.ip-10-28-32-189.shturval.link:443 \
+  -servername mirror.ip-10-28-32-189.shturval.link \
+  </dev/null 2>/dev/null \
+  | openssl x509 -outform PEM > "$tmpfile"
+
+openssl x509 -in "$tmpfile" -noout -fingerprint -sha256
+
+sudo install -d -m 0755 \
+  /etc/containerd/certs.d/mirror.ip-10-28-32-189.shturval.link
+sudo install -o root -g root -m 0644 "$tmpfile" \
+  /etc/containerd/certs.d/mirror.ip-10-28-32-189.shturval.link/ca.crt
+```
+
+Не изменяйте `/etc/containerd/config.toml`, каталог `_default` или настройки других
+registry. Не используйте `skip_verify` и не перезапускайте containerd. Проверить
+отсутствие рестарта до и после установки:
+
+```bash
+systemctl show containerd -p MainPID -p ActiveEnterTimestamp
+```
+
+Проверка image через CRI:
+
+```bash
+sudo crictl pull \
+  mirror.ip-10-28-32-189.shturval.link/kube-blackbox@sha256:5b7a52c94e04dbd65425db71da428f6a1175a10cf3b4c7596e204211e1c6d557
+```
+
+На infra-узлах `10.28.32.131` и `10.28.32.139` pull проверен успешно. PID и время
+старта containerd не изменились.
+
+## Helm repository и установка
+
+В Shturval используется существующая запись `mirror-stp`:
+
+```text
+https://mirror.ip-10-28-32-189.shturval.link/repository/shturval_helm/
+```
+
+URL `/repository/kube-blackbox/` нельзя указывать как Helm repository: это Docker
+repository без `index.yaml`. Credentials не должны храниться в Git.
+
+Для новой установки:
+
+1. Создайте namespace `blackbox`.
+2. Откройте **Сервисы и репозитории** → **Доступные чарты** → `mirror-stp`.
+3. Выберите `kube-blackbox` версии `0.1.3`.
+4. Укажите namespace `blackbox`, режим **Авто** и значения из
+   `deploy/shturval-values.yaml`.
+
+Chart планирует Pod только на узлы с labels:
 
 ```yaml
-clusterName: management
-
-imagePullSecrets:
-  - name: kube-blackbox-registry
-
-persistence:
-  storageClass: ""
-  size: 5Gi
+nodeSelector:
+  kubernetes.io/arch: amd64
+  node-role.kubernetes.io/infra: ""
 ```
 
-Готовый вариант для вставки также хранится в
-[`deploy/shturval-values.yaml`](../deploy/shturval-values.yaml); в нём нет
-учётных данных Nexus.
+Для совершенно нового release очистите `persistence.existingClaim`: chart создаст
+PVC после выбора infra-узла.
 
-Пустой `storageClass` означает default StorageClass. Если на стенде default-класса
-нет, выберите существующий класс в Shturval и укажите его точное имя.
+## Особенность существующего release demo214
 
-## 5. Проверить запуск в интерфейсе
-
-1. **Сервисы и репозитории** → **Установленные сервисы** → `kube-blackbox`:
-   ожидаемый статус — `Healthy`.
-2. Namespace `kube-blackbox` → **Нагрузки** → **Deployments**:
-   ожидается одна доступная реплика `kube-blackbox`.
-3. На странице Pod проверьте **События**, **Volumes** и **Логи**.
-4. Успешный initial LIST подтверждают сообщения:
+Первоначальный local-path PVC был привязан к обычному worker. Он сохранён. Для
+переноса приложения на infra создан новый PVC:
 
 ```text
-watch started
-initial Kubernetes snapshots persisted
+deploy/shturval-infra-pvc.yaml
 ```
 
-В логах не должно быть `forbidden`, `permission denied`, `ImagePullBackOff` или
-`ErrImagePull`.
+Текущий экземпляр использует:
 
-## Диагностика без kubectl
+```yaml
+persistence:
+  existingClaim: kube-blackbox-lq7q2-data-infra
+```
 
-| Симптом в Shturval | Что проверить |
-|---|---|
-| `ImagePullBackOff` / `ErrImagePull` | имя Secret, registry hostname, права пользователя Nexus, события Pod |
-| ошибка `x509` при pull image | уже существующее доверие runtime к Nexus; ImagePullSecret TLS не исправляет |
-| PVC остаётся `Pending` | наличие default StorageClass или значение `persistence.storageClass` |
-| `forbidden` в логах | разрешена ли установщику chart регистрация read-only ClusterRole/Binding |
-| `permission denied` для data directory | поддерживает ли выбранный CSI `fsGroup: 65532` |
-| сервис не появляется в каталоге | для OCI ввести имя chart вручную и выполнить обе проверки |
+Старые PVC не удаляются автоматически.
 
-Если pull image завершается ошибкой `x509`, а менять Kubernetes и runtime узлов
-запрещено, это внешний блокер: сертификат должен быть исправлен на Nexus либо
-registry уже должен быть разрешён штатной конфигурацией стенда.
-
-## Локальная проверка chart
-
-Эти команды работают только с файлами репозитория и не подключаются к кластеру:
+## Проверка статуса
 
 ```bash
-make chart-lint
-helm template kube-blackbox charts/kube-blackbox \
-  --namespace kube-blackbox > /tmp/kube-blackbox-rendered.yaml
+KUBECONFIG=/absolute/path/to/demo214.conf
+
+kubectl --kubeconfig "$KUBECONFIG" get ns blackbox
+
+kubectl --kubeconfig "$KUBECONFIG" -n blackbox \
+  get deployment,pod,pvc -o wide
+
+kubectl --kubeconfig "$KUBECONFIG" -n blackbox \
+  rollout status deployment/kube-blackbox-lq7q2 --timeout=60s
+
+kubectl --kubeconfig "$KUBECONFIG" -n blackbox \
+  logs deployment/kube-blackbox-lq7q2 --tail=100
 ```
 
-Официальные страницы Shturval 2.14:
+Ожидается: Deployment `1/1`, Pod `Running` с `RESTARTS 0` на infra-узле, PVC
+`Bound`, а в логах есть `initial Kubernetes snapshots persisted`.
 
-- [подключение своего Helm repository](https://docs.demo214.ip-10-28-32-101.shturval.link/ru2/cluster-admin/services/custom-repo/);
-- [установка сервиса из chart через GUI](https://docs.demo214.ip-10-28-32-101.shturval.link/ru2/cluster-admin/services/deploy-service/);
-- [ImagePullSecrets через GUI](https://docs.demo214.ip-10-28-32-101.shturval.link/ru2/cluster-admin/services/private-registry/).
+## Функциональная проверка
+
+Контейнер построен `FROM scratch`, поэтому shell в нём отсутствует. Для чтения
+evidence вызывайте сам бинарник.
+
+Версия и timeline:
+
+```bash
+kubectl --kubeconfig "$KUBECONFIG" -n blackbox exec \
+  deployment/kube-blackbox-lq7q2 -- /kube-blackbox version
+
+kubectl --kubeconfig "$KUBECONFIG" -n blackbox exec \
+  deployment/kube-blackbox-lq7q2 -- \
+  /kube-blackbox timeline --data-dir=/var/lib/kube-blackbox \
+  --namespace=blackbox --limit=20
+```
+
+Структурный diff сохранённых версий Pod:
+
+```bash
+kubectl --kubeconfig "$KUBECONFIG" -n blackbox exec \
+  deployment/kube-blackbox-lq7q2 -- \
+  /kube-blackbox diff --data-dir=/var/lib/kube-blackbox \
+  --namespace=blackbox --kind=Pod --limit=500
+```
+
+Проверка редактирования ConfigMap:
+
+```bash
+kubectl --kubeconfig "$KUBECONFIG" -n blackbox exec \
+  deployment/kube-blackbox-lq7q2 -- \
+  /kube-blackbox timeline --data-dir=/var/lib/kube-blackbox \
+  --kind=ConfigMap --output=records --limit=20
+```
+
+У записей ConfigMap отсутствуют `object.data` и `object.binaryData`, а поле
+`object.redaction` равно `configmap payload removed`. Запрос с `--kind=Secret`
+должен вернуть пустой массив.
+
+Для проверки главного MVP-сценария нужен отдельный тестовый namespace: изменить
+Deployment/NetworkPolicy, дождаться readiness failure, удалить затронутый Pod и
+после удаления запросить timeline по его UID. Такой тест изменяет тестовые workloads
+и должен запускаться только с отдельным разрешением владельца кластера.
+
+## Проверка опубликованного выпуска без Kubernetes
+
+```bash
+make release-verify
+```
+
+Команда проверяет image digest, платформу `linux/amd64`, SHA-256 chart `0.1.3`,
+Helm lint и render.
+
+Ручная проверка Helm repository:
+
+```bash
+helm repo add blackbox \
+  https://mirror.ip-10-28-32-189.shturval.link/repository/shturval_helm/ \
+  --insecure-skip-tls-verify
+helm repo update
+helm search repo blackbox/kube-blackbox --versions
+helm show values blackbox/kube-blackbox --version 0.1.3
+```
+
+## Диагностика
+
+| Симптом | Что проверить |
+|---|---|
+| `x509: certificate signed by unknown authority` | `ca.crt` в точном каталоге hostname Nexus и fingerprint |
+| `ImagePullBackOff` | image digest, события Pod и `crictl pull` на infra |
+| Pod `Pending` | selectors, taints и node affinity local-path PVC |
+| PVC `Pending` | default StorageClass и `WaitForFirstConsumer` |
+| `forbidden` в логах | ClusterRole/Binding с `get`, `list`, `watch` |
+| `permission denied` в data directory | поддержку `fsGroup: 65532` выбранным CSI |

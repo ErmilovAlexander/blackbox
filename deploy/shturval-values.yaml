@@ -5,17 +5,18 @@ clusterName: management
 image:
   repository: mirror.ip-10-28-32-189.shturval.link/kube-blackbox
   tag: "4faa2b2"
-  digest: "sha256:0a742b83f0bfca6db4da14707020c40ecea9db838d6d8e951a1d6ca2e0836575"
+  digest: "sha256:5b7a52c94e04dbd65425db71da428f6a1175a10cf3b4c7596e204211e1c6d557"
   pullPolicy: IfNotPresent
 
-imagePullSecrets:
-  - name: kube-blackbox-registry
+imagePullSecrets: []
 
 persistence:
   enabled: true
   keep: true
+  existingClaim: kube-blackbox-lq7q2-data-infra
   storageClass: ""
   size: 5Gi
 
 nodeSelector:
   kubernetes.io/arch: amd64
+  node-role.kubernetes.io/infra: ""

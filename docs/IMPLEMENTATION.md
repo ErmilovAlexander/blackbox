@@ -22,7 +22,7 @@ segment-*.jsonl
 
 | Путь | Реализованная ответственность |
 | --- | --- |
-| `cmd/kube-blackbox/main.go` | CLI `recorder`, `timeline`, `version`; конфигурация клиента Kubernetes; graceful shutdown |
+| `cmd/kube-blackbox/main.go` | CLI `recorder`, `timeline`, `diff`, `version`; конфигурация клиента Kubernetes; graceful shutdown |
 | `internal/collector/kubernetes.go` | 13 cluster-wide informer-ов, классификация `SNAPSHOT/ADD/UPDATE/DELETE`, сбор metadata и Event reason/message |
 | `internal/model/record.go` | Версионированная canonical schema и проверка обязательных полей/enums |
 | `internal/redact/redact.go` | Удаление `managedFields`, Secret/ConfigMap payload, plaintext env и рискованных annotations |
@@ -93,3 +93,23 @@ segment-*.jsonl
 | `.kbb` export | Не реализован |
 | Node agent | Не реализован |
 | External analyzer contract | Только архитектурное решение, кода пока нет |
+
+## Проверка на demo214
+
+11 сентября 2026 года image `4faa2b2` и chart `0.1.3` были проверены в management-
+кластере `demo214`:
+
+- Deployment и Pod перешли в `Ready 1/1` на infra-узле;
+- все 13 informer-ов синхронизировались;
+- JSONL содержал 784 `SNAPSHOT`, 30 `UPDATE` и 1 `DELETE`;
+- размер активного segment вырос с 3 285 948 до 3 341 092 байт за 10 секунд;
+- все проверенные записи имели schema `kbb.io/record/v1alpha1`;
+- timeline вернул сохранённые Kubernetes Event с `reason` и `summary`;
+- diff показал переход Pod из `Pending` в `Running` по RFC 6901 paths;
+- удалённый ReplicaSet отсутствовал в Kubernetes, но его `DELETE` record с
+  `previous` оставался в локальном store;
+- ConfigMap payload отсутствовал, а запрос `kind=Secret` вернул пустой массив.
+
+Это подтверждает M0 и реализованную часть M1. Полный acceptance scenario из
+`docs/MVP.md` с изменением NetworkPolicy пока не выполнялся, поскольку он требует
+создания и изменения тестовых workloads.

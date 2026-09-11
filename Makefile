@@ -1,4 +1,4 @@
-.PHONY: build test test-short vet fmt fmt-check verify vendor image image-push chart-lint chart-package chart-push manifests install smoke clean
+.PHONY: build test test-short vet fmt fmt-check verify vendor image image-push chart-lint chart-package chart-push release-verify manifests install smoke clean
 
 GO ?= go
 BINARY ?= bin/kube-blackbox
@@ -8,9 +8,10 @@ PLATFORM ?= linux/amd64
 HELM ?= helm
 CHART ?= charts/kube-blackbox
 CHART_DEST ?= dist
-CHART_VERSION ?= 0.1.0
-CHART_OCI ?= oci://mirror.ip-10-28-32-189.shturval.link/helm
-HELM_PUSH_FLAGS ?=
+CHART_VERSION ?= 0.1.3
+CHART_REPOSITORY ?= https://mirror.ip-10-28-32-189.shturval.link/repository/shturval_helm/
+NEXUS_USER ?= admin
+NEXUS_TLS_FLAGS ?= --insecure
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
 build:
@@ -55,7 +56,12 @@ chart-package: chart-lint
 	$(HELM) package $(CHART) --destination $(CHART_DEST)
 
 chart-push: chart-package
-	$(HELM) push $(CHART_DEST)/kube-blackbox-$(CHART_VERSION).tgz $(CHART_OCI) $(HELM_PUSH_FLAGS)
+	curl --fail-with-body $(NEXUS_TLS_FLAGS) --user $(NEXUS_USER) \
+		--upload-file $(CHART_DEST)/kube-blackbox-$(CHART_VERSION).tgz \
+		$(CHART_REPOSITORY)
+
+release-verify:
+	./hack/verify-nexus-release.sh
 
 manifests:
 	kubectl kustomize deploy >/dev/null

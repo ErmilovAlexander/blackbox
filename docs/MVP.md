@@ -10,7 +10,7 @@
 - [x] Basic timeline query
 - [x] Restricted RBAC deployment example
 - [x] Unit tests
-- [ ] Real-cluster smoke test (automated harness is in `hack/kubernetes-smoke-test.sh`; execution requires a cluster)
+- [x] Real-cluster smoke test (`demo214`, chart `0.1.3`; see `docs/SHTURVAL.md`)
 
 ## M1 — useful flight recorder
 
@@ -46,3 +46,8 @@
 ## Definition of MVP success
 
 Given a test cluster where a Deployment rollout changes a NetworkPolicy and causes readiness failures, Kube Blackbox must reconstruct the ordered timeline **after the affected Pod has already been deleted**, using only its local retained records.
+
+The standalone `kube-blackbox timeline` and `kube-blackbox diff` commands are
+implemented and verified against the live PVC. Packaging them as a `kubectl`
+plugin and executing the complete NetworkPolicy/readiness acceptance scenario
+remain open M1 work.

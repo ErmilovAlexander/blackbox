@@ -77,8 +77,8 @@ make smoke
 Для удалённого кластера образ сначала нужно отправить во внутренний registry, затем заменить image у Deployment. Полный порядок действий, настройка PVC и диагностика: [docs/KUBERNETES.md](docs/KUBERNETES.md).
 
 Для management-кластера стенда Shturval 2.14 подготовлен Helm chart с закреплённым
-`linux/amd64` image digest. Установка выполняется только через графический интерфейс,
-без `kubectl` и без изменения Kubernetes/узлов: [docs/SHTURVAL.md](docs/SHTURVAL.md).
+`linux/amd64` image digest. Образ берётся из локального Nexus, а Pod планируется
+только на infra-узлы: [docs/SHTURVAL.md](docs/SHTURVAL.md).
 
 ## Основные команды
 
@@ -90,7 +90,8 @@ make image       собрать OCI image (IMAGE=... VERSION=...)
 make image-push  собрать и отправить OCI image для PLATFORM (по умолчанию linux/amd64)
 make chart-lint  проверить и отрендерить Helm chart локально
 make chart-package упаковать Helm chart в dist/
-make chart-push  упаковать и отправить chart в OCI repository
+make chart-push  упаковать и отправить chart в Nexus Helm repository
+make release-verify проверить опубликованные chart и linux/amd64 image без доступа к Kubernetes
 make install     выполнить kubectl apply -k deploy
 make smoke       выполнить Kubernetes smoke-тест
 make vendor      подготовить зависимости для air-gapped сборки
